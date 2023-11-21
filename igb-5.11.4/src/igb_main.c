@@ -2434,6 +2434,60 @@ static int igb_ndo_bridge_getlink(struct sk_buff *skb, u32 pid, u32 seq,
 }
 #endif /* HAVE_BRIDGE_ATTRIBS */
 #endif /* HAVE_FDB_OPS */
+
+static int igb_xdp_setup(struct net_device *dev, struct bpf_prog *prog)
+{
+	int i, frame_size = dev->mtu + ETH_HLEN + ETH_FCS_LEN + VLAN_HLEN;
+	struct igb_adapter *adapter = netdev_priv(dev);
+	struct bpf_prog *old_prog;
+	bool running = netif_running(dev);
+	bool need_reset;
+
+	/* verify igb ring attributes are sufficient for XDP */
+	for (i = 0; i< adapter->num_rx_queues; i++) {
+		struct igb_ring *ring = adapter->rx_ring[i];
+
+		if (frame_size > igb_rx_bufsz(ring)) {
+			return -EINVAL;
+		}
+	}
+
+	old_prog = xchg(&adapter->xdp_prog, prog);
+	need_reset = (!!prog != !!old_prog);
+	if (need_reset && running) {
+		igb_close(dev);
+	} else {
+		for (i = 0; i < adapter->num_rx_queues; i++) {
+			(void)xchg(&adapter->rx_ring[i]->xdp_prog,
+					   adapter->xdp_prog);
+		}
+	}
+
+	if (old_prog)
+		bpf_prog_put(old_prog);
+
+	/* bpf is just replaced, RXQ and MTU are already setup */
+	if (!need_reset) 
+		return 0;
+
+	if (running)
+		igb_open(dev);
+		
+	return 0;
+}
+
+static int igb_xdp(struct net_device *dev, struct netdev_bpf *xdp)
+{
+	struct igb_adapter *adapter = netdev_priv(dev);
+
+	switch (xdp->command) {
+	case XDP_SETUP_PROG:
+		return igb_xdp_setup(dev, xdp->prog);
+	default:
+		return -EINVAL;
+	}
+}
+
 #ifdef HAVE_NET_DEVICE_OPS
 static const struct net_device_ops igb_netdev_ops = {
 	.ndo_open		= igb_open,
@@ -2442,6 +2496,7 @@ static const struct net_device_ops igb_netdev_ops = {
 	.ndo_get_stats		= igb_get_stats,
 	.ndo_set_rx_mode	= igb_set_rx_mode,
 	.ndo_set_mac_address	= igb_set_mac,
+	.ndo_bpf 		= igb_xdp,
 #ifdef HAVE_NDO_SET_VF_TRUST
 #ifdef HAVE_RHEL7_NET_DEVICE_OPS_EXT
 	.extended.ndo_set_vf_trust = igb_ndo_set_vf_trust,

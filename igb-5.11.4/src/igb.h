@@ -6,6 +6,7 @@
 #ifndef _IGB_H_
 #define _IGB_H_
 
+#include <linux/bitops.h>
 #include <linux/kobject.h>
 
 #ifndef IGB_NO_LRO
@@ -170,14 +171,36 @@ struct vf_mac_filter {
 /* Supported Rx Buffer Sizes */
 #define IGB_RXBUFFER_256   256
 #define IGB_RXBUFFER_2048  2048
+#define IGB_RXBUFFER_3072  3072
 #define IGB_RXBUFFER_16384 16384
 #define IGB_RX_HDR_LEN	   IGB_RXBUFFER_256
+#define IGB_TS_HDR_LEN		16
+
 #if MAX_SKB_FRAGS < 8
 #define IGB_RX_BUFSZ	   ALIGN(MAX_JUMBO_FRAME_SIZE / MAX_SKB_FRAGS, 1024)
 #else
 #define IGB_RX_BUFSZ	   IGB_RXBUFFER_2048
 #endif
 
+#define IGB_SKB_PAD		(NET_SKB_PAD + NET_IP_ALIGN)
+#if (PAGE_SIZE < 8192)
+#define IGB_MAX_FRAME_BUILD_SKB \
+	(SKB_WITH_OVERHEAD(IGB_RXBUFFER_2048) - IGB_SKB_PAD - IGB_TS_HDR_LEN)
+#else
+#define IGB_MAX_FRAME_BUILD_SKB (IGB_RXBUFFER_2048 - IGB_TS_HDR_LEN)
+#endif
+
+static inline unsigned int igb_rx_bufsz(struct igb_ring *ring)
+{
+#if (PAGE_SIZE < 8192)
+	if (ring_uses_large_buffer(ring))
+		return IGB_RXBUFFER_3072;
+
+	if (ring_uses_build_skb(ring))
+		return IGB_MAX_FRAME_BUILD_SKB + IGB_TS_HDR_LEN;
+#endif
+	return IGB_RXBUFFER_2048;
+}
 
 /* Packet Buffer allocations */
 #define IGB_PBA_BYTES_SHIFT 0xA
@@ -350,6 +373,7 @@ struct igb_ring_container {
 struct igb_ring {
 	struct igb_q_vector *q_vector;  /* backlink to q_vector */
 	struct net_device *netdev;      /* back pointer to net_device */
+	struct bpf_prog *xdp_prog;
 	struct device *dev;             /* device for dma mapping */
 	union {				/* array of buffer info structs */
 		struct igb_tx_buffer *tx_buffer_info;
@@ -545,6 +569,7 @@ struct igb_adapter {
 	unsigned long active_vlans[BITS_TO_LONGS(VLAN_N_VID)];
 #endif
 	struct net_device *netdev;
+	struct bpf_prog *xdp_prog;
 
 	unsigned long state;
 	unsigned int flags;
