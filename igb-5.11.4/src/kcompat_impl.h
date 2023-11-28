@@ -833,7 +833,7 @@ _kc_bpf_warn_invalid_xdp_action(__maybe_unused struct net_device *dev,
 	bpf_warn_invalid_xdp_action(act);
 }
 
-#define bpf_warn_invalid_xdp_action(dev, prog, act) \
+#define kc_bpf_warn_invalid_xdp_action(dev, prog, act) \
 	_kc_bpf_warn_invalid_xdp_action(dev, prog, act)
 #endif /* HAVE_XDP_SUPPORT */
 #endif /* HAVE_NETDEV_PROG_XDP_WARN_ACTION */

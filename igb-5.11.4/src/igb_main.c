@@ -8,6 +8,7 @@
 #include <linux/pagemap.h>
 #include <linux/netdevice.h>
 #include <linux/tcp.h>
+#include <linux/filter.h>
 #ifdef NETIF_F_TSO
 #include <net/checksum.h>
 #ifdef NETIF_F_TSO6
@@ -2469,6 +2470,17 @@ static struct sk_buff *igb_run_xdp(struct igb_adapter *adapter,
 			result = IGB_XDP_REDIR;
 		else
 			result = IGB_XDP_CONSUMED;
+		break;
+	default:
+		bpf_warn_invalid_xdp_action(act);
+		fallthrough;
+	case XDP_ABORTED:
+		// TODO where did trace_xdp_exception define?
+		trace_xdp_exception(rx_ring->netdev, xdp_prog, act);
+		fallthrough;
+	case XDP_DROP:
+		result = IGB_XDP_CONSUMED;
+		break;
 	}
 
 xdp_out: 
@@ -8812,6 +8824,12 @@ static bool igb_alloc_mapped_skb(struct igb_ring *rx_ring,
 }
 
 #else /* CONFIG_IGB_DISABLE_PACKET_SPLIT */
+
+static inline unsigned int igb_rx_offset(struct igb_ring *rx_ring)
+{
+	return ring_uses_build_skb(rx_ring) ? IGB_SKB_PAD : 0;
+}
+
 static bool igb_alloc_mapped_page(struct igb_ring *rx_ring,
 				  struct igb_rx_buffer *bi)
 {
@@ -8845,7 +8863,10 @@ static bool igb_alloc_mapped_page(struct igb_ring *rx_ring,
 
 	bi->dma = dma;
 	bi->page = page;
-	bi->page_offset = 0;
+	// TODO what for?
+	bi->page_offset = igb_rx_offset(rx_ring);
+	page_ref_add(page, USHRT_MAX - 1);
+	bi->pagecnt_bias = USHRT_MAX;
 
 	return true;
 }

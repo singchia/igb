@@ -333,6 +333,7 @@ struct igb_rx_buffer {
 	struct page *page;
 	u32 page_offset;
 #endif
+	u32 pagecnt_bias;
 };
 
 struct igb_tx_queue_stats {
