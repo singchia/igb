@@ -96,6 +96,8 @@ struct igb_adapter;
 #define IGB_MAX_RX_QUEUES_82575            4
 #define IGB_MAX_RX_QUEUES_I211             2
 #define IGB_MAX_TX_QUEUES                  8
+/* XDP */
+#define IGB_MAX_XDP_QUEUES                 8
 
 #define IGB_MAX_VF_MC_ENTRIES             30
 #define IGB_MAX_VF_FUNCTIONS               8
@@ -315,7 +317,11 @@ enum igb_tx_flags {
 struct igb_tx_buffer {
 	union e1000_adv_tx_desc *next_to_watch;
 	unsigned long time_stamp;
-	struct sk_buff *skb;
+	union {
+		struct sk_buff *skb;
+		/* XDP */
+		struct xdp_frame *xdpf;
+	};
 	unsigned int bytecount;
 	u16 gso_segs;
 	__be16 protocol;
@@ -415,6 +421,8 @@ struct igb_ring {
 	struct net_device *vmdq_netdev;
 	int vqueue_index;		/* queue index for virtual netdev */
 #endif
+	/* XDP */
+	struct xdp_rxq_info xdp_rxq;
 } ____cacheline_internodealigned_in_smp;
 
 struct igb_q_vector {
@@ -570,6 +578,7 @@ struct igb_adapter {
 	unsigned long active_vlans[BITS_TO_LONGS(VLAN_N_VID)];
 #endif
 	struct net_device *netdev;
+	/* XDP */
 	struct bpf_prog *xdp_prog;
 
 	unsigned long state;
@@ -578,6 +587,9 @@ struct igb_adapter {
 	unsigned int num_q_vectors;
 	struct msix_entry *msix_entries;
 
+	/* XDP */
+	int num_xdp_queues;
+	struct igb_ring *xdp_ring[IGB_MAX_XDP_QUEUES];
 
 	/* TX */
 	u16 tx_work_limit;
@@ -650,6 +662,8 @@ struct igb_adapter {
 	/* to not mess up cache alignment, always add to the bottom */
 	u32 *config_space;
 	u16 tx_ring_count;
+	/* XDP */
+	u16 xdp_ring_count;
 	u16 rx_ring_count;
 	struct vf_data_storage *vf_data;
 #ifdef IFLA_VF_MAX
