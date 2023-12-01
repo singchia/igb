@@ -923,6 +923,9 @@ static int igb_set_ringparam(struct net_device *netdev,
 		for (i = 0; i < adapter->num_tx_queues; i++) {
 			memcpy(&temp_ring[i], adapter->tx_ring[i],
 			       sizeof(struct igb_ring));
+			
+			/* Clear copied XDP RX-queue info */
+			memset(&temp_ring[i].xdp_rxq, 0, sizeof(temp_ring[i].xdp_rxq));
 
 			temp_ring[i].count = new_tx_count;
 			err = igb_setup_tx_resources(&temp_ring[i]);
