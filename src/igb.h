@@ -257,6 +257,7 @@ enum igb_tx_buf_type
 struct igb_tx_buffer {
 	union e1000_adv_tx_desc *next_to_watch;
 	unsigned long time_stamp;
+	enum igb_tx_buf_type type;
 	union {
 		struct sk_buff *skb;
 		struct xdp_frame *xdp;
