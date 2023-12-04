@@ -82,10 +82,10 @@ struct igb_adapter;
 #define IGB_I210_RX_LATENCY_1000	448
 
 /* XDP */
-#define IGB_XDP_PASS 				0
-#define IGB_XDP_CONSUMED 			BIT(0)
-#define IGB_XDP_TX 					BIT(1)
-#define IGB_XDP_REDIR				BIT(2)
+#define IGB_XDP_PASS		0
+#define IGB_XDP_CONSUMED	BIT(0)
+#define IGB_XDP_TX		BIT(1)
+#define IGB_XDP_REDIR		BIT(2)
 
 struct vf_data_storage {
 	unsigned char vf_mac_addresses[ETH_ALEN];
@@ -138,34 +138,38 @@ struct vf_mac_filter {
 /* this is the size past which hardware will drop packets when setting LPE=0 */
 #define MAXIMUM_ETHERNET_VLAN_SIZE 1522
 
+#define IGB_ETH_PKT_HDR_PAD	(ETH_HLEN + ETH_FCS_LEN + (VLAN_HLEN * 2))
+
 /* Supported Rx Buffer Sizes */
 #define IGB_RXBUFFER_256	256
-#define IGB_RXBUFFER_1536	1536 /* XDP */
+#define IGB_RXBUFFER_1536	1536
 #define IGB_RXBUFFER_2048	2048
 #define IGB_RXBUFFER_3072	3072
 #define IGB_RX_HDR_LEN		IGB_RXBUFFER_256
 #define IGB_TS_HDR_LEN		16
 
 /* Attempt to maximize the headroom available for incoming frames.  We
-* use a 2K buffer for receives and need 1536/1534 to store the data for
-* the frame.  This leaves us with 512 bytes of room.  From that we need
-* to deduct the space needed for the shared info and the padding needed
-* to IP align the frame.
-*
-* Note: For cache line sizes 256 or larger this value is going to end
-*	 up negative.  In these cases we should fall back to the 3K
-*	 buffers.
-*/
+ * use a 2K buffer for receives and need 1536/1534 to store the data for
+ * the frame.  This leaves us with 512 bytes of room.  From that we need
+ * to deduct the space needed for the shared info and the padding needed
+ * to IP align the frame.
+ *
+ * Note: For cache line sizes 256 or larger this value is going to end
+ *	 up negative.  In these cases we should fall back to the 3K
+ *	 buffers.
+ */
 #if (PAGE_SIZE < 8192)
 #define IGB_MAX_FRAME_BUILD_SKB (IGB_RXBUFFER_1536 - NET_IP_ALIGN)
 #define IGB_2K_TOO_SMALL_WITH_PADDING \
-	((NET_SKB_PAD + IGB_TS_HDR_LEN + IGB_RXBUFFER_1536) > SKB_WITH_OVERHEAD(IGB_RXBUFFER_2048))
+((NET_SKB_PAD + IGB_TS_HDR_LEN + IGB_RXBUFFER_1536) > SKB_WITH_OVERHEAD(IGB_RXBUFFER_2048))
 
 static inline int igb_compute_pad(int rx_buf_len)
 {
 	int page_size, pad_size;
+
 	page_size = ALIGN(rx_buf_len, PAGE_SIZE / 2);
 	pad_size = SKB_WITH_OVERHEAD(page_size) - rx_buf_len;
+
 	return pad_size;
 }
 
@@ -174,24 +178,24 @@ static inline int igb_skb_pad(void)
 	int rx_buf_len;
 
 	/* If a 2K buffer cannot handle a standard Ethernet frame then
-	*  optimize padding for a 3K buffer instead of a 1.5K buffer.
-	* 
-	* For a 3K buffer we need to add enough padding to allow for
-	* tailroom due to NET_IP_ALIGN possibly shifting us out of
-	* cache-line alignment.
-	*/
+	 * optimize padding for a 3K buffer instead of a 1.5K buffer.
+	 *
+	 * For a 3K buffer we need to add enough padding to allow for
+	 * tailroom due to NET_IP_ALIGN possibly shifting us out of
+	 * cache-line alignment.
+	 */
 	if (IGB_2K_TOO_SMALL_WITH_PADDING)
 		rx_buf_len = IGB_RXBUFFER_3072 + SKB_DATA_ALIGN(NET_IP_ALIGN);
 	else
 		rx_buf_len = IGB_RXBUFFER_1536;
-	
+
 	/* if needed make room for NET_IP_ALIGN */
 	rx_buf_len -= NET_IP_ALIGN;
 
 	return igb_compute_pad(rx_buf_len);
 }
 
-#define IGB_SKB_PAD igb_skb_pad()
+#define IGB_SKB_PAD	igb_skb_pad()
 #else
 #define IGB_SKB_PAD	(NET_SKB_PAD + NET_IP_ALIGN)
 #endif
@@ -245,8 +249,10 @@ enum igb_tx_flags {
 #define IGB_SFF_ADDRESSING_MODE		0x4
 #define IGB_SFF_8472_UNSUP		0x00
 
-enum igb_tx_buf_type
-{
+/* TX resources are shared between XDP and netstack
+ * and we need to tag the buffer type to distinguish them
+ */
+enum igb_tx_buf_type {
 	IGB_TYPE_SKB = 0,
 	IGB_TYPE_XDP,
 };
@@ -260,7 +266,7 @@ struct igb_tx_buffer {
 	enum igb_tx_buf_type type;
 	union {
 		struct sk_buff *skb;
-		struct xdp_frame *xdp;
+		struct xdp_frame *xdpf;
 	};
 	unsigned int bytecount;
 	u16 gso_segs;
@@ -309,7 +315,7 @@ struct igb_ring_container {
 struct igb_ring {
 	struct igb_q_vector *q_vector;	/* backlink to q_vector */
 	struct net_device *netdev;	/* back pointer to net_device */
-	struct bpf_prog *xdp_prog; /* XDP */
+	struct bpf_prog *xdp_prog;
 	struct device *dev;		/* device pointer for dma mapping */
 	union {				/* array of buffer info structs */
 		struct igb_tx_buffer *tx_buffer_info;
@@ -324,6 +330,7 @@ struct igb_ring {
 	u16 count;			/* number of desc. in the ring */
 	u8 queue_index;			/* logical index of the ring*/
 	u8 reg_idx;			/* physical index of the ring */
+	bool launchtime_enable;		/* true if LaunchTime is enabled */
 	bool cbs_enable;		/* indicates if CBS is enabled */
 	s32 idleslope;			/* idleSlope in kbps */
 	s32 sendslope;			/* sendSlope in kbps */
@@ -349,7 +356,7 @@ struct igb_ring {
 			struct u64_stats_sync rx_syncp;
 		};
 	};
-	struct xdp_rxq_info xdp_rxq; /* XDP */
+	struct xdp_rxq_info xdp_rxq;
 } ____cacheline_internodealigned_in_smp;
 
 struct igb_q_vector {
@@ -368,7 +375,7 @@ struct igb_q_vector {
 	char name[IFNAMSIZ + 9];
 
 	/* for dynamic allocation of rings associated with this q_vector */
-	struct igb_ring ring[0] ____cacheline_internodealigned_in_smp;
+	struct igb_ring ring[] ____cacheline_internodealigned_in_smp;
 };
 
 enum e1000_ring_flags_t {
@@ -529,7 +536,7 @@ struct igb_adapter {
 	unsigned long active_vlans[BITS_TO_LONGS(VLAN_N_VID)];
 
 	struct net_device *netdev;
-	struct bpf_prog *xdp_prog; /* XDP */
+	struct bpf_prog *xdp_prog;
 
 	unsigned long state;
 	unsigned int flags;
@@ -705,9 +712,10 @@ enum igb_boards {
 };
 
 extern char igb_driver_name[];
-extern char igb_driver_version[];
 
-int igb_xmit_xdp_ring(struct igb_adapter *adapter, struct igb_ring *ring, struct xdp_frame *xdf);
+int igb_xmit_xdp_ring(struct igb_adapter *adapter,
+		      struct igb_ring *ring,
+		      struct xdp_frame *xdpf);
 int igb_open(struct net_device *netdev);
 int igb_close(struct net_device *netdev);
 int igb_up(struct igb_adapter *);
@@ -725,6 +733,7 @@ void igb_configure_tx_ring(struct igb_adapter *, struct igb_ring *);
 void igb_configure_rx_ring(struct igb_adapter *, struct igb_ring *);
 void igb_setup_tctl(struct igb_adapter *);
 void igb_setup_rctl(struct igb_adapter *);
+void igb_setup_srrctl(struct igb_adapter *, struct igb_ring *);
 netdev_tx_t igb_xmit_frame_ring(struct sk_buff *, struct igb_ring *);
 void igb_alloc_rx_buffers(struct igb_ring *, u16);
 void igb_update_stats(struct igb_adapter *);
@@ -739,8 +748,8 @@ void igb_ptp_suspend(struct igb_adapter *adapter);
 void igb_ptp_rx_hang(struct igb_adapter *adapter);
 void igb_ptp_tx_hang(struct igb_adapter *adapter);
 void igb_ptp_rx_rgtstamp(struct igb_q_vector *q_vector, struct sk_buff *skb);
-void igb_ptp_rx_pktstamp(struct igb_q_vector *q_vector, void *va,
-			 struct sk_buff *skb);
+int igb_ptp_rx_pktstamp(struct igb_q_vector *q_vector, void *va,
+			ktime_t *timestamp);
 int igb_ptp_set_ts_config(struct net_device *netdev, struct ifreq *ifr);
 int igb_ptp_get_ts_config(struct net_device *netdev, struct ifreq *ifr);
 void igb_set_flag_queue_pairs(struct igb_adapter *, const u32);
